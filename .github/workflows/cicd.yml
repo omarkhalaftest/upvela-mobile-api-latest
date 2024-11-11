@@ -1,0 +1,46 @@
+name: Check Master
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/*'
+
+jobs:
+  check_master:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Git
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y git
+
+    - name: Create directory and clone repository
+      run: |
+        mkdir -p ${{ github.sha }}
+        cd ${{ github.sha }}
+        git clone https://github.com/smartegy2023/upvela-mobile-api-latest.git
+        cd upvela-mobile-api-latest
+
+    - name: Checkout branch
+      run: |
+        git checkout ${{ github.ref_name }}
+        git rev-list HEAD > check_master.txt
+
+    - name: Get remote master SHA
+      id: get_remote_master_sha
+      run: |
+        remote_master_sha=$(git ls-remote https://github.com/smartegy2023/upvela-mobile-api-latest.git HEAD | awk '{print $1}')
+        echo "::set-output name=remote_master_sha::$remote_master_sha"
+
+    - name: Check if master is merged
+      run: |
+        if grep -Fxq "${{ steps.get_remote_master_sha.outputs.remote_master_sha }}" check_master.txt; then
+          echo "Master Merged Successfully"
+        else
+          echo "Please merge master before pushing to your branch"
+          exit 1
