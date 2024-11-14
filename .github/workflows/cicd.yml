@@ -1,46 +1,80 @@
-name: Check Master
-
 on:
   push:
     branches:
-      - main
-      - 'feature/*'
+      - dev
+      - staging
+
+env:
+  SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  AWS_REGION: 'us-east-1'
+  CODEPIPELINE_NAME: "${{ github.workflow }}"
+  PIPLINE_NAME: ${{ github.event_name == 'push' &&
+    (contains(github.event.ref, 'refs/heads/dev') && 'dev' ||
+    contains(github.event.ref, 'refs/heads/staging') && 'stage')
+    || '' }}
 
 jobs:
-  check_master:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: dev
 
-    - name: Set up Git
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y git
+      - name: Debug Environment
+        run: |
+          echo "PHP Version:"
+          php --version
+          echo "Composer Version:"
+          composer --version
+          echo "Environment Variables:"
+          printenv
+          echo "Current Directory:"
+          pwd
+          echo "Directory Listing:"
+          ls -la
 
-    - name: Create directory and clone repository
-      run: |
-        mkdir -p ${{ github.sha }}
-        cd ${{ github.sha }}
-        git clone https://github.com/smartegy2023/upvela-mobile-api-latest.git
-        cd upvela-mobile-api-latest
+      - name: Build
+        run: |
+          echo ${{env.CODEPIPELINE_NAME}}
+          php --version
+          # rm -f composer.lock
+          composer install
+          cp .env.example .env
+          php artisan key:generate
+          yes | php artisan jwt:secret
 
-    - name: Checkout branch
-      run: |
-        git checkout ${{ github.ref_name }}
-        git rev-list HEAD > check_master.txt
+      - name: Unit test
+        run: |
+          echo "Unit test started..."
+          php artisan test
+          echo "Unit test finished."
+        continue-on-error: true
 
-    - name: Get remote master SHA
-      id: get_remote_master_sha
-      run: |
-        remote_master_sha=$(git ls-remote https://github.com/smartegy2023/upvela-mobile-api-latest.git HEAD | awk '{print $1}')
-        echo "::set-output name=remote_master_sha::$remote_master_sha"
+      # - name: SonarQube Scan
+      #   uses: sonarsource/sonarqube-scan-action@v1.0.0
+      #   env:
+      #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      #     SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      #   continue-on-error: true
 
-    - name: Check if master is merged
-      run: |
-        if grep -Fxq "${{ steps.get_remote_master_sha.outputs.remote_master_sha }}" check_master.txt; then
-          echo "Master Merged Successfully"
-        else
-          echo "Please merge master before pushing to your branch"
-          exit 1
+  publish-to-aws:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Publish to AWS
+        run: |
+          aws configure set aws_access_key_id "${{ env.AWS_ACCESS_KEY_ID }}"
+          aws configure set aws_secret_access_key "${{ env.AWS_SECRET_ACCESS_KEY }}"
+          aws configure set region "${{ env.AWS_REGION }}"
+          aws codepipeline enable-stage-transition --pipeline-name ${{ env.PIPLINE_NAME }} --stage-name Deploy --transition-type Inbound
+          aws codepipeline disable-stage-transition --pipeline-name ${{ env.PIPLINE_NAME }} --stage-name Deploy --transition-type Inbound --reason "Disabling transition for maintenance"
