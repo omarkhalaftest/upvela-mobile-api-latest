@@ -11,10 +11,7 @@ env:
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   AWS_REGION: 'us-east-1'
   CODEPIPELINE_NAME: "${{ github.workflow }}"
-  PIPLINE_NAME: ${{ github.event_name == 'push' &&
-    (contains(github.event.ref, 'refs/heads/dev') && 'dev' ||
-    contains(github.event.ref, 'refs/heads/staging') && 'stage')
-    || '' }}
+  PIPLINE_NAME: moblie-api
 
 jobs:
   build:
